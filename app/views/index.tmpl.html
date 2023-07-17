@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h2>CPU Temperature</h2>
+    <div id="result"></div>
+
+    <script>
+        if (!!window.EventSource) {
+            var source = new EventSource('/temp');
+
+            source.addEventListener('message', function(e) {
+                document.getElementById('result').innerHTML = e.data;
+            }, false);
+        } else {
+            document.getElementById('result').innerHTML = "Sorry, your browser does not support Server-Sent Events.";
+        }
+    </script>
+</body>
+</html>
