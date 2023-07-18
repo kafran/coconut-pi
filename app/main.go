@@ -49,7 +49,8 @@ func piHandler(w http.ResponseWriter, r *http.Request) {
 				formattedOutput = strings.TrimPrefix(formattedOutput, "temp=")
 				formattedOutput = fmt.Sprintf("%s °C", formattedOutput)
 			case "clock":
-				formattedOutput = strings.Split(string(output), "=")[1]
+				formattedOutput = strings.TrimSuffix(string(output), "\n")
+				formattedOutput = strings.Split(formattedOutput, "=")[1]
 				hz, err := strconv.ParseFloat(formattedOutput, 64)
 				if err != nil {
 					fmt.Fprintf(w, "event: %s\ndata: Error: %v\n\n", event, err)
