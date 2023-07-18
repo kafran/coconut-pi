@@ -1,19 +1,39 @@
 <!DOCTYPE html>
-<html>
-<body>
-    <h2>CPU Temperature</h2>
-    <div id="result"></div>
+<html lang="en">
 
-    <script>
-        if (!!window.EventSource) {
-            var source = new EventSource('/temp');
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="/assets/dist/output.css" rel="stylesheet">
+    <title>Raspberry Pi Dashboard</title>
+</head>
 
-            source.addEventListener('message', function(e) {
-                document.getElementById('result').innerHTML = e.data;
-            }, false);
-        } else {
-            document.getElementById('result').innerHTML = "Sorry, your browser does not support Server-Sent Events.";
-        }
-    </script>
+<body class="bg-gray-100">
+    <header class="p-5 bg-blue-500 text-white text-center">
+        <h1 class="text-2xl">Raspberry Pi Dashboard</h1>
+    </header>
+
+    <main class="flex justify-center mx-auto p-10">
+        <div class="flex space-x-4">
+            <!-- Card 1: Temperature -->
+            <div class="bg-white shadow rounded-lg p-4 w-64">
+                <h2 class="font-bold text-xl mb-2">Temperature</h2>
+                <p id="temperature">...</p>
+            </div>
+
+            <!-- Card 2: Voltage -->
+            <div class="bg-white shadow rounded-lg p-4 w-64">
+                <h2 class="font-bold text-xl mb-2">Voltage</h2>
+                <p id="voltage">...</p>
+            </div>
+
+            <!-- Card 3: Clock -->
+            <div class="bg-white shadow rounded-lg p-4 w-64">
+                <h2 class="font-bold text-xl mb-2">Clock</h2>
+                <p id="clock">...</p>
+            </div>
+        </div>
+    </main>
 </body>
+
 </html>
