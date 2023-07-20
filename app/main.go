@@ -58,7 +58,7 @@ func (p *Publisher) Publish(event Event) {
 
 func monitor() {
 	for {
-		for _, event := range []string{"temp", "clock", "volt"} {
+		for _, event := range []string{"temp", "clock", "volt", "mem"} {
 			var cmd *exec.Cmd
 			switch event {
 			case "temp":
@@ -67,11 +67,14 @@ func monitor() {
 				cmd = exec.Command("vcgencmd", "measure_clock", "arm")
 			case "volt":
 				cmd = exec.Command("vcgencmd", "measure_volts", "core")
+			case "mem":
+				cmd = exec.Command("free", "-h")
 			}
 
 			output, err := cmd.Output()
 			if err != nil {
-				p.Publish(Event{event, fmt.Sprintf("Error: %v", err)})
+				p.Publish(Event{event, "-"})
+				fmt.Println(Event{event, fmt.Sprintf("Error: %v", err)})
 				continue
 			}
 
@@ -95,9 +98,21 @@ func monitor() {
 				formattedOutput = strings.TrimSuffix(string(output), "V\n")
 				formattedOutput = strings.TrimPrefix(formattedOutput, "volt=")
 				formattedOutput = fmt.Sprintf("%s V", formattedOutput)
+			case "mem":
+				lines := strings.Split(string(output), "\n")
+				if len(lines) < 2 {
+					p.Publish(Event{event, "Error: unexpected output format"})
+					continue
+				}
+				memInfo := strings.Fields(lines[1])
+				if len(memInfo) < 3 {
+					p.Publish(Event{event, "Error: unexpected output format"})
+					continue
+				}
+				formattedOutput = fmt.Sprintf("%s / %s", memInfo[2], memInfo[1])
 			}
 			p.Publish(Event{event, formattedOutput})
-			fmt.Printf("Event: %v\n", Event{event, formattedOutput})
+			//fmt.Printf("Event: %v\n", Event{event, formattedOutput})
 		}
 		var plural string
 		if len(p.Subscribers) > 1 {
