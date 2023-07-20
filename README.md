@@ -1,3 +1,3 @@
-# Pingo
+# Coconut Pi
 
-Raspberry Pi + Go + HTMX + Tailwind
+Brazilian Raspberry Pi + Go + HTMX + Tailwind.

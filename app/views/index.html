@@ -10,12 +10,12 @@
     <script src="/assets/js/htmx/sse.js"></script>
 </head>
 
-<body class="bg-slate-300 flex flex-col min-h-screen px-36">
+<body class="bg-slate-300 flex flex-col min-h-screen px-2 sm:px-6 lg:px-36">
     <header class="p-5 bg-sky-900">
         <h1 class="text-2xl font-bold text-white">Coconut Pi 🥥</h1>
     </header>
     <main class="flex-grow">
-        <div hx-ext="sse" sse-connect="/status" class="py-4 grid grid-cols-3 gap-4">
+        <div hx-ext="sse" sse-connect="/status" class="py-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div class="bg-white shadow rounded-lg p-4 h-24">
                 <h2 class="font-bold text-xl mb-2">Temperature 🌡️</h2>
                 <p sse-swap="temp" id="temperature">...</p>
@@ -29,15 +29,15 @@
                 <p sse-swap="clock" id="clock">...</p>
             </div>
             <div class="bg-white shadow rounded-lg p-4 h-24">
-                <h2 class="font-bold text-xl mb-2">Observers 👁️</h2>
-                <p sse-swap="observers" id="observers">...</p>
-            </div>
-            <div class="bg-white shadow rounded-lg p-4 h-24">
                 <h2 class="font-bold text-xl mb-2">Memory 💾</h2>
                 <div class="flex items-center space-x-1">
                     <p sse-swap="mem" id="mem">...</p>
                     <span class="text-xs">(used/total)</span>
                 </div>
+            </div>
+            <div class="bg-white shadow rounded-lg p-4 h-24">
+                <h2 class="font-bold text-xl mb-2">Observers 👁️</h2>
+                <p sse-swap="observers" id="observers">...</p>
             </div>
         </div>
     </main>

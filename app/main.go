@@ -123,11 +123,11 @@ var piMetrics = []PiMetric{
 			var formattedOutput string
 			lines := strings.Split(output, "\n")
 			if len(lines) < 2 {
-				return "-", fmt.Errorf("Error: unexpected output format")
+				return "-", fmt.Errorf("unexpected output format")
 			}
 			memInfo := strings.Fields(lines[1])
 			if len(memInfo) < 3 {
-				return "-", fmt.Errorf("Error: unexpected output format")
+				return "-", fmt.Errorf("unexpected output format")
 			}
 			formattedOutput = fmt.Sprintf("%s / %s", memInfo[2], memInfo[1])
 			return formattedOutput, nil
