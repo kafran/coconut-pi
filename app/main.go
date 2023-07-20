@@ -22,49 +22,44 @@ type Subscriber struct {
 }
 
 type Publisher struct {
-	Subscribers []Subscriber
+	Subscribers map[*Subscriber]struct{}
 	Mu          sync.Mutex
 }
 
-func (p *Publisher) Subscribe() Subscriber {
+func (p *Publisher) Subscribe() *Subscriber {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
-
-	sub := Subscriber{
+	sub := &Subscriber{
 		Events: make(chan Event),
 	}
-	p.Subscribers = append(p.Subscribers, sub)
-	fmt.Println("Subscriber subscribed ", sub)
+	p.Subscribers[sub] = struct{}{}
+	defer fmt.Println("Subscriber subscribed ", sub)
 	return sub
 }
 
-func (p *Publisher) Unsubscribe(sub Subscriber) {
+func (p *Publisher) Unsubscribe(sub *Subscriber) {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
-
-	for i, subscriber := range p.Subscribers {
-		if subscriber == sub {
-			p.Subscribers = append(p.Subscribers[:i], p.Subscribers[i+1:]...)
-			close(sub.Events)
-			fmt.Println("Subscriber unsubscribed ", sub)
-			break
-		}
+	if _, ok := p.Subscribers[sub]; !ok {
+		panic("Subscriber not found.")
 	}
+	delete(p.Subscribers, sub)
+	close(sub.Events)
+	defer fmt.Println("Subscriber unsubscribed ", sub)
 }
 
 func (p *Publisher) Publish(event Event) {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
-
-	for _, subscriber := range p.Subscribers {
+	for subscriber := range p.Subscribers {
 		subscriber.Events <- event
 	}
 }
 
 func monitor() {
 	for {
-		var cmd *exec.Cmd
 		for _, event := range []string{"temp", "clock", "volt"} {
+			var cmd *exec.Cmd
 			switch event {
 			case "temp":
 				cmd = exec.Command("vcgencmd", "measure_temp")
@@ -102,7 +97,15 @@ func monitor() {
 				formattedOutput = fmt.Sprintf("%s V", formattedOutput)
 			}
 			p.Publish(Event{event, formattedOutput})
+			fmt.Printf("Event: %v\n", Event{event, formattedOutput})
 		}
+		var plural string
+		if len(p.Subscribers) > 1 {
+			plural = "people"
+		} else {
+			plural = "person"
+		}
+		p.Publish(Event{"observers", fmt.Sprintf("%d %s here", len(p.Subscribers), plural)})
 		time.Sleep(time.Second)
 	}
 }
@@ -128,11 +131,15 @@ func piHandler(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
+			// default:
+			// drop the event
 		}
 	}
 }
 
-var p = &Publisher{}
+var p = &Publisher{
+	Subscribers: make(map[*Subscriber]struct{}),
+}
 
 func main() {
 	http.Handle("/", http.FileServer(http.FS(views.Files)))
