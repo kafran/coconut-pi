@@ -21,9 +21,14 @@ type Subscriber struct {
 	Events chan Event
 }
 
+// The initial implementation was using a []slice to hold the subscribers,
+// but a map seems more efficient for Unsubscribing latter. An empty struct
+// in golang is 0 bytes, so it's a good choice for the map value.
+// The sync.Mutex was replaced by a sync.RWMutex, as we don't need to block
+// the whole map for reading when publishing.
 type Publisher struct {
 	Subscribers map[*Subscriber]struct{}
-	Mu          sync.Mutex
+	Mu          sync.RWMutex
 }
 
 func (p *Publisher) Subscribe() *Subscriber {
@@ -49,13 +54,19 @@ func (p *Publisher) Unsubscribe(sub *Subscriber) {
 }
 
 func (p *Publisher) Publish(event Event) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.Mu.RLock()
+	defer p.Mu.RUnlock()
 	for subscriber := range p.Subscribers {
-		subscriber.Events <- event
+		select {
+		case subscriber.Events <- event:
+			// fmt.Println("Escreve evento ", event)
+		default:
+			fmt.Println("Skipping event ", event)
+		}
 	}
 }
 
+// TODO - Improve this.
 func monitor() {
 	for {
 		for _, event := range []string{"temp", "clock", "volt", "mem"} {
@@ -121,7 +132,7 @@ func monitor() {
 			plural = "person"
 		}
 		p.Publish(Event{"observers", fmt.Sprintf("%d %s here", len(p.Subscribers), plural)})
-		time.Sleep(time.Second)
+		time.Sleep(time.Second * 10)
 	}
 }
 
@@ -146,8 +157,6 @@ func piHandler(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
-			// default:
-			// drop the event
 		}
 	}
 }
