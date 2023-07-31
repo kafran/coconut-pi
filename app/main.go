@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kafran/coconut-pi/app/views"
@@ -17,58 +17,49 @@ type Event struct {
 	Data string
 }
 
-type Subscriber struct {
-	Events chan Event
+type EventBroker struct {
+	Publish     chan Event
+	Subscribe   chan chan Event
+	Unsubscribe chan chan Event
+	subscribers map[chan Event]struct{} // in golang an empty struct takes up no memory
 }
 
-// The initial implementation was using a []slice to hold the subscribers,
-// but a map seems more efficient for Unsubscribing latter. An empty struct
-// in golang is 0 bytes, so it's a good choice for the map value.
-// The sync.Mutex was replaced by a sync.RWMutex, as we don't need to block
-// the whole map for reading when publishing.
-type Publisher struct {
-	Subscribers map[*Subscriber]struct{}
-	Mu          sync.RWMutex
-}
-
-func (p *Publisher) Subscribe() *Subscriber {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
-	sub := &Subscriber{
-		Events: make(chan Event),
-	}
-	p.Subscribers[sub] = struct{}{}
-	defer fmt.Println("Subscriber subscribed ", sub)
-	return sub
-}
-
-func (p *Publisher) Unsubscribe(sub *Subscriber) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
-	if _, ok := p.Subscribers[sub]; !ok {
-		panic("Subscriber not found.")
-	}
-	delete(p.Subscribers, sub)
-	close(sub.Events)
-	defer fmt.Println("Subscriber unsubscribed ", sub)
-}
-
-func (p *Publisher) Publish(event Event) {
-	p.Mu.RLock()
-	defer p.Mu.RUnlock()
-	for subscriber := range p.Subscribers {
+func (b *EventBroker) start() {
+	for {
 		select {
-		case subscriber.Events <- event:
-		default:
-			fmt.Println("Skipping event ", event)
+		case ch := <-b.Subscribe:
+			b.subscribers[ch] = struct{}{}
+			go publishSubscribersSize(b, len(b.subscribers))
+			log.Println(ch, " subscribed.")
+		case ch := <-b.Unsubscribe:
+			delete(b.subscribers, ch)
+			go publishSubscribersSize(b, len(b.subscribers))
+			log.Println(ch, " unsubscribed.")
+		case event := <-b.Publish:
+			for ch := range b.subscribers {
+				select {
+				case ch <- event:
+				default:
+					// If the client is too slow to receive the event, we simply
+					// skip it. Take note: the "observers" metric is recorded only once,
+					// when someone subscribes or unsubscribes. Therefore, a slow client might
+					// miss it. A possible solution to this problem could be using a
+					// buffered channel.
+					log.Println(ch, " skipped the event ", event)
+				}
+			}
 		}
 	}
 }
 
-func (p *Publisher) Size() int {
-	p.Mu.RLock()
-	defer p.Mu.RUnlock()
-	return len(p.Subscribers)
+func publishSubscribersSize(broker *EventBroker, size int) {
+	var plural string
+	if size > 1 {
+		plural = "people"
+	} else {
+		plural = "person"
+	}
+	broker.Publish <- Event{"observers", fmt.Sprintf("%d %s here", size, plural)}
 }
 
 type PiMetric struct {
@@ -77,136 +68,132 @@ type PiMetric struct {
 	FormatOutput func(output string) (string, error)
 }
 
-var piMetrics = []PiMetric{
-	{
-		Name:    "temp",
-		Command: []string{"vcgencmd", "measure_temp"},
-		FormatOutput: func(output string) (string, error) {
-			var formattedOutput string
-			formattedOutput = strings.TrimSuffix(output, "'C\n")
-			formattedOutput = strings.TrimPrefix(formattedOutput, "temp=")
-			formattedOutput = fmt.Sprintf("%s °C", formattedOutput)
-			return formattedOutput, nil
-		},
-	},
-	{
-		Name:    "clock",
-		Command: []string{"vcgencmd", "measure_clock", "arm"},
-		FormatOutput: func(output string) (string, error) {
-			var formattedOutput string
-			formattedOutput = strings.TrimSuffix(output, "\n")
-			formattedOutput = strings.Split(formattedOutput, "=")[1]
-			hz, err := strconv.ParseFloat(formattedOutput, 64)
-			if err != nil {
-				return "-", err
-			}
-			ghz := hz / 1e9
-			formattedOutput = fmt.Sprintf("%.2f GHz", ghz)
-			return formattedOutput, nil
-		},
-	},
-	{
-		Name:    "volt",
-		Command: []string{"vcgencmd", "measure_volts", "core"},
-		FormatOutput: func(output string) (string, error) {
-			var formattedOutput string
-			formattedOutput = strings.TrimSuffix(output, "V\n")
-			formattedOutput = strings.TrimPrefix(formattedOutput, "volt=")
-			formattedOutput = fmt.Sprintf("%s V", formattedOutput)
-			return formattedOutput, nil
-		},
-	},
-	{
-		Name:    "mem",
-		Command: []string{"free", "-h"},
-		FormatOutput: func(output string) (string, error) {
-			var formattedOutput string
-			lines := strings.Split(output, "\n")
-			if len(lines) < 2 {
-				return "-", fmt.Errorf("unexpected output format")
-			}
-			memInfo := strings.Fields(lines[1])
-			if len(memInfo) < 3 {
-				return "-", fmt.Errorf("unexpected output format")
-			}
-			formattedOutput = fmt.Sprintf("%s / %s", memInfo[2], memInfo[1])
-			return formattedOutput, nil
-		},
-	},
-}
-
-func runPiMetric(metric PiMetric) {
+func runPiMetric(metric PiMetric, broker *EventBroker) {
 	for {
 		output, err := exec.Command(metric.Command[0], metric.Command[1:]...).Output()
 		if err != nil {
-			p.Publish(Event{metric.Name, "-"})
-			fmt.Println(Event{metric.Name, err.Error()})
+			broker.Publish <- Event{metric.Name, "-"}
+			log.Println(Event{metric.Name, err.Error()})
 			continue
 		}
 		formattedOutput, err := metric.FormatOutput(string(output))
 		if err != nil {
-			p.Publish(Event{metric.Name, "-"})
-			fmt.Println(Event{metric.Name, err.Error()})
+			broker.Publish <- Event{metric.Name, "-"}
+			log.Println(Event{metric.Name, err.Error()})
 			continue
 		}
-		p.Publish(Event{metric.Name, formattedOutput})
+		broker.Publish <- Event{metric.Name, formattedOutput}
 		time.Sleep(time.Second)
 	}
 }
 
-func runObserversMetric() {
-	for {
-		var plural string
-		observers := p.Size()
-		if observers > 1 {
-			plural = "people"
-		} else {
-			plural = "person"
-		}
-		p.Publish(Event{"observers", fmt.Sprintf("%d %s here", observers, plural)})
-		time.Sleep(time.Second)
-	}
-}
-
-func monitor() {
-	for _, metric := range piMetrics {
-		go runPiMetric(metric)
-	}
-	go runObserversMetric()
-}
-
-func piHandler(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported!", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	sub := p.Subscribe()
-	defer p.Unsubscribe(sub)
-
-	for {
-		select {
-		case event := <-sub.Events:
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data)
-			flusher.Flush()
-		case <-r.Context().Done():
+func streamHandler(broker *EventBroker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported!", http.StatusInternalServerError)
 			return
 		}
-	}
-}
 
-var p = &Publisher{
-	Subscribers: make(map[*Subscriber]struct{}),
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		streamChannel := make(chan Event)
+		broker.Subscribe <- streamChannel
+		// If for any reason the client connection is closed, we
+		// unsubscribe from the broker's streamChannel.
+		defer func() {
+			broker.Unsubscribe <- streamChannel
+		}()
+
+		for {
+			select {
+			case event := <-streamChannel:
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data)
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
 }
 
 func main() {
+	broker := &EventBroker{
+		Subscribe:   make(chan chan Event),
+		Unsubscribe: make(chan chan Event),
+		Publish:     make(chan Event, 1),
+		subscribers: make(map[chan Event]struct{}),
+	}
+	go broker.start()
+
+	metrics := []PiMetric{
+		{
+			Name:    "temp",
+			Command: []string{"vcgencmd", "measure_temp"},
+			FormatOutput: func(output string) (string, error) {
+				var formattedOutput string
+				formattedOutput = strings.TrimSuffix(output, "'C\n")
+				formattedOutput = strings.TrimPrefix(formattedOutput, "temp=")
+				formattedOutput = fmt.Sprintf("%s °C", formattedOutput)
+				return formattedOutput, nil
+			},
+		},
+		{
+			Name:    "clock",
+			Command: []string{"vcgencmd", "measure_clock", "arm"},
+			FormatOutput: func(output string) (string, error) {
+				var formattedOutput string
+				formattedOutput = strings.TrimSuffix(output, "\n")
+				formattedOutput = strings.Split(formattedOutput, "=")[1]
+				hz, err := strconv.ParseFloat(formattedOutput, 64)
+				if err != nil {
+					return "-", err
+				}
+				ghz := hz / 1e9
+				formattedOutput = fmt.Sprintf("%.2f GHz", ghz)
+				return formattedOutput, nil
+			},
+		},
+		{
+			Name:    "volt",
+			Command: []string{"vcgencmd", "measure_volts", "core"},
+			FormatOutput: func(output string) (string, error) {
+				var formattedOutput string
+				formattedOutput = strings.TrimSuffix(output, "V\n")
+				formattedOutput = strings.TrimPrefix(formattedOutput, "volt=")
+				formattedOutput = fmt.Sprintf("%s V", formattedOutput)
+				return formattedOutput, nil
+			},
+		},
+		{
+			Name:    "mem",
+			Command: []string{"free", "-h"},
+			FormatOutput: func(output string) (string, error) {
+				var formattedOutput string
+				lines := strings.Split(output, "\n")
+				if len(lines) < 2 {
+					return "-", fmt.Errorf("unexpected output format")
+				}
+				memInfo := strings.Fields(lines[1])
+				if len(memInfo) < 3 {
+					return "-", fmt.Errorf("unexpected output format")
+				}
+				formattedOutput = fmt.Sprintf("%s / %s", memInfo[2], memInfo[1])
+				return formattedOutput, nil
+			},
+		},
+	}
+
+	for _, metric := range metrics {
+		go runPiMetric(metric, broker)
+	}
+
 	http.Handle("/", http.FileServer(http.FS(views.Files)))
-	http.HandleFunc("/status", piHandler)
-	go monitor()
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/status", streamHandler(broker))
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
 }

@@ -1,35 +1,41 @@
 # Coconut Pi
 
-A Raspberry Pi in Brazil + Go + HTMX + Tailwind.
+A Raspberry Pi + Golang + SSE (Server Sent Events) + HTMX + Tailwind.
 
-![Web capture_21-7-2023_94948_coconutpi kafran codes](https://github.com/kafran/coconut-pi/assets/1889828/703981eb-87fe-4d46-8d3e-6eec205fb34e)
+![Coconut Pi Dashboard](https://github.com/kafran/coconut-pi/assets/1889828/703981eb-87fe-4d46-8d3e-6eec205fb34e)
 
-[Coconut Pi](https://coconutpi.kafran.codes) is my first Go project after getting a handle on the language's basics. This simple application was built to read a few metrics of interest from my Raspberry Pi 3 model B+, which I recently purchased.
+[Coconut Pi](https://coconutpi.kafran.codes) is a compact SSE (Server Sent Events) showcase built with Golang. This simple application is designed to read and display metrics from a Raspberry Pi 3 Model B+ in real time.
 
-This project is a result of my exploration with Go, following the [Tour of Go](https://go.dev/tour/) and solving a few [challenges](http://www.pythonchallenge.com/). The interactive parts of the front-end have been made possible using the HTMX Server-Sent Event (SSE) extension, and TailwindCSS has been used for styling.
+The interactive front-end is powered by the HTMX SSE extension, with TailwindCSS for styling. The solution implements a publish-subscribe model using goroutines and channels in Golang.
 
-In the initial stages, I implemented the solution naively, just reading the metrics and returning the events for the clients. However, after understanding the workings of net/http and how each client request would spawn its own goroutine reading the system metrics, I optimized the solution. This involved running the metrics on their own goroutine and notifying the clients using a basic pub/sub model.
+The entire application is embedded into a single binary for easy deployment.
 
-Through this project, I've learnt about goroutines, the use of Mutex and RWMutex to protect the access to data structures from multiple goroutines, and improved my understanding of channels and pointers. I also discovered the nuances of variable scope and closures in Go [goroutine inside a for loop? 🥲], which was a challenging but enlightening experience.
+This project is currently hosted on my own Raspberry Pi and is available 24/7 at [coconutpi.kafran.codes](https://coconutpi.kafran.codes) (please don't hackme 🥲).
 
-The project is 24/7 running on my Raspberry Pi and available on https://coconutpi.kafran.codes (please don't hackme 🥲).
+## Local Setup
 
-It's been a while since I've had so much fun learning a new language, and I look forward to continuing to explore Go through this project.
+To run the project, make sure you have Golang, Node.js and npm installed on your machine.
 
-# Local Setup
-
-To run the project you must have tailwind installed:
+Compile the Tailwind CSS using the following command:
 
 ```bash
 npx tailwindcss -i ./app/views/assets/css/src/style.css -o ./app/views/assets/css/dist/style.css --minify
 ```
 
-and don't forget to configure the compiler for the Raspberry Pi:
+Configure the Go compiler for the Raspberry Pi with the command:
 
 ```bash
 GOOS=linux GOARCH=arm64 go build -o ./build/ ./app/main.go
 ```
 
-# Future Plans
+And deploy to your Raspberry Pi:
 
-In the future, I aim to extend the capabilities of this project by adding new metrics. Specifically, I want to include the uptime of the Raspberry Pi, indicating how long it has been running since the last reboot. Additionally, I plan to implement a feature that keeps track of the maximum number of concurrent users on the dashboard since the last system reboot. This will provide useful insights into the usage patterns and capacity handling of the application.
+```bash
+scp -i '~/.ssh/id_ed25519' ./build/main <username>@<ip-address>:<path on the raspberry>
+```
+
+## Future Plans
+
+* Add an uptime metric 
+* Add the number of max concurrent users on the dashboard since the last system reboot
+* Add the ability for users to leave a message on the page that will persist until the next reboot
